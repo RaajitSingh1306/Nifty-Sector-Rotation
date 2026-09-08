@@ -79,6 +79,8 @@ Log returns are computed at 4 horizons and **cross-sectionally ranked** (0–1 p
 - **Costs:** 0.1% transaction cost on rebalance days only
 - **Benchmark:** Nifty 50 (`^NSEI`) buy-and-hold
 - **Risk-free rate:** 6.5% annualised (India 10yr G-Sec)
+- **Signal execution**: Sector momentum scores computed at month-end T are applied at the open of month T+1 (1-month execution lag). This prevents look-ahead bias — the model never uses information that would not have been available at decision time.
+- **Walk-forward structure**: training window expands, never a rolling window of fixed size, to simulate real deployment where all historical data is available.
 
 ### Metrics
 

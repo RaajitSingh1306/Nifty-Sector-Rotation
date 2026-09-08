@@ -109,6 +109,7 @@ def run_backtest(prices: pd.DataFrame,
     }
 
 
+
 def _calc_metrics(returns: pd.Series, label: str) -> dict:
     returns = returns.dropna()
     total   = (1 + returns).prod() - 1
@@ -247,6 +248,18 @@ if __name__ == "__main__":
 
     results = run_backtest(prices, weights)
     print_metrics(results)
+
+    # Save summary metrics
+    metrics = {
+        "CAGR": results["metrics_strat"]["CAGR"],
+        "Sharpe": results["metrics_strat"]["Sharpe"],
+        "Max_DD": results["metrics_strat"]["Max_DD"],
+        "Benchmark_CAGR": results["metrics_bench"]["CAGR"],
+        "Benchmark_Sharpe": results["metrics_bench"]["Sharpe"],
+    }
+    pd.DataFrame([metrics]).to_csv("data/backtest_summary.csv", index=False)
+    print("✅ Metrics saved → data/backtest_summary.csv")
+
     plot_results(results)
     plot_sector_weights(results)
 
@@ -259,3 +272,4 @@ if __name__ == "__main__":
     })
     eq.to_csv("data/backtest_equity.csv")
     print("✅ Equity curves saved → data/backtest_equity.csv")
+    
