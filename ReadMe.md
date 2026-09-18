@@ -1,172 +1,240 @@
-# P3 — Nifty Sector Rotation Strategy
+# Nifty Sector Rotation Strategy — Quantitative Momentum Pipeline
 
-Quantitative sector rotation strategy on Indian equity markets. Every month, 10 Nifty sector indices are ranked by a composite momentum score across 4 time horizons. The top 3 sectors are held at equal weight until the next rebalance. A walk-forward backtest measures performance against a Nifty 50 buy-and-hold benchmark.
+[![FastAPI Serving](https://img.shields.io/badge/FastAPI-REST%20API-009688)](#api-reference)
+[![Momentum Strategy](https://img.shields.io/badge/Strategy-Composite%20Momentum%20(1%2F3%2F6%2F12m)-blue)](#composite-momentum-score)
+[![Backtest](https://img.shields.io/badge/Backtest-Walk--Forward%20vs%20Nifty%2050-emerald)](#backtest-performance)
+[![Risk Filter](https://img.shields.io/badge/Risk%20Gate-21d%20Vol%20%3C%2045%25-orange)](#strategy-rules--execution-mechanics)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
----
+An institutional quantitative sector rotation strategy operating on Indian equity markets. Every month, **10 Nifty sector indices** are evaluated across multiple lookback windows and cross-sectionally ranked by a composite momentum score. 
 
-## Architecture
-
-```
-data.py       — fetch 10 Nifty sector indices via yfinance (disk-cached)
-    ↓
-features.py   — momentum scores (1/3/6/12m), cross-sectional rank,
-                composite score, realised vol, rolling correlation
-    ↓
-strategy.py   — monthly rotation signal: top-N selection,
-                vol filter, equal-weight allocation
-    ↓
-backtest.py   — walk-forward backtest vs Nifty 50 B&H
-                (1-month lag, 0.1% transaction cost, full metrics)
-    ↓
-outputs/      — equity curve, drawdown, rolling Sharpe,
-                sector allocation history
-```
+The top 3 qualifying sectors are allocated at equal weight (33.3% each) subject to a realized volatility risk gate. A walk-forward backtest measures strategy performance against the broad market Nifty 50 buy-and-hold benchmark under realistic friction (1-month execution lag and 0.1% transaction costs), served live via a **FastAPI REST service**.
 
 ---
 
-## Strategy Logic
+## Table of Contents
 
-| Step | Detail |
-|---|---|
-| Universe | 10 Nifty sector indices (Auto, Bank, IT, Pharma, FMCG, Metal, Energy, Realty, Media, MNC) |
-| Rebalance | Monthly — last trading day of each month |
-| Signal | Composite momentum score (see below) |
-| Selection | Top 3 sectors by composite score |
-| Weighting | Equal weight — 33.3% each |
-| Risk filter | Exclude sectors with 21d realised vol > 45% annualised |
-| Execution lag | Weights set at month-end apply from the **next** month's first day |
-| Transaction cost | 0.1% one-way per position changed |
+1. [What This Project Does](#what-this-project-does)
+2. [Why Sector Rotation?](#why-sector-rotation)
+3. [Strategy Rules & Execution Mechanics](#strategy-rules--execution-mechanics)
+4. [Composite Momentum Formulation](#composite-momentum-formulation)
+5. [Universe of 10 Nifty Sectors](#universe-of-10-nifty-sectors)
+6. [System Architecture](#system-architecture)
+7. [Project Directory Layout](#project-directory-layout)
+8. [Where & How to Start](#where--how-to-start)
+   - [Step 1: Environment Setup](#step-1-environment-setup)
+   - [Step 2: Run Master Pipeline](#step-2-run-master-pipeline)
+   - [Step 3: Start FastAPI Server](#step-3-start-fastapi-server)
+9. [REST API Reference](#rest-api-reference)
+10. [Generated Artifacts & Diagnostic Plots](#generated-artifacts--diagnostic-plots)
+11. [Connected Portfolio Projects](#connected-portfolio-projects)
 
 ---
 
-## Composite Momentum Score
+## What This Project Does
 
-Log returns are computed at 4 horizons and **cross-sectionally ranked** (0–1 percentile) before weighting, so each sector's score reflects its relative strength versus the other 9 — not its absolute return.
+Operating on daily historical and live sector data from Yahoo Finance, this pipeline:
 
-| Window | Weight | Rationale |
+1. **Ingests 10 Nifty Sector Indices**: Auto, Bank, Energy, FMCG, IT, Media, Metal, Pharma, Realty, and MNC indices.
+2. **Computes Multi-Horizon Cross-Sectional Momentum**: Measures 1-month, 3-month, 6-month, and 12-month returns and ranks them cross-sectionally between $0.0$ (weakest) and $1.0$ (strongest).
+3. **Applies Risk Management Filter**: Calculates 21-day annualized realized volatility; disqualifies any sector exhibiting $\sigma_{\text{realized}} > 45\%$.
+4. **Executes Walk-Forward Backtest**: Simulates monthly rebalancing against Nifty 50 buy-and-hold with:
+   - 1-month execution lag (weights generated on the last trading day of month $T$ apply over month $T+1$).
+   - 0.1% one-way transaction friction per rebalanced weight delta.
+5. **Serves Signals via API**: Exposes current portfolio allocations and historical performance via FastAPI endpoints.
+
+---
+
+## Why Sector Rotation?
+
+* **Macro Sector Dispersion**: At any point in the Indian macroeconomic cycle, individual sectors diverge drastically from the index. Metals may surge during commodity expansions while IT consolidates; FMCG outperforms in defensives while Banking leads rate cut rallies.
+* **Overcoming Return Random Walks**: While individual daily index returns behave as near-random walks (proven in [Nifty-Time-Series](nifty-time-series.md)), **cross-sectional relative momentum** exhibits statistical persistence over 3-to-12 month horizons.
+* **Downside Drawdown Mitigation**: Volatility gates and periodic rotation systematically rotate out of deteriorating sectors, preserving capital during market corrections.
+
+---
+
+## Strategy Rules & Execution Mechanics
+
+| Parameter | Specification | Purpose / Rationale |
 |---|---|---|
-| 1 month | 10% | Short-term noise — low weight |
-| 3 months | 25% | Recent trend confirmation |
-| 6 months | 40% | Core momentum signal |
-| 12 months | 25% | Long-term trend direction |
-
-6-month momentum is weighted highest following Jegadeesh & Titman (1993): 1-month signals carry reversal risk; 12-month signals lag too far.
-
----
-
-## Sector Universe
-
-| Ticker | Sector |
-|---|---|
-| ^CNXAUTO | Auto |
-| ^CNXBANK | Banking |
-| ^CNXIT | IT |
-| ^CNXPHARMA | Pharma |
-| ^CNXFMCG | FMCG |
-| ^CNXMETAL | Metals |
-| ^CNXENERGY | Energy |
-| ^CNXREALTY | Realty |
-| ^CNXMEDIA | Media |
-| ^CNXMNC | MNC |
+| **Universe** | 10 Nifty Sector Indices | Comprehensive coverage of the Indian macro economy |
+| **Benchmark** | Nifty 50 (`^NSEI`) | Standard equity market benchmark |
+| **Rebalance Frequency** | Monthly (last trading day of month) | Low portfolio turnover and manageable execution friction |
+| **Selection Rule** | Top 3 qualifying sectors | Concentration without idiosyncratic fragility |
+| **Weighting** | Equal weight ($33.3\%$ each) | Mitigates estimation error in parameter-heavy mean-variance optimization |
+| **Risk Gate** | Realized Vol ($21\text{d}$) $\le 45\%$ ann. | Prevents holding sectors undergoing high-volatility liquidation cascades |
+| **Execution Lag** | 1-month lag | Prevents lookahead bias (month-end signals executed next trading day) |
+| **Friction** | 0.1% one-way cost per position change | Realistic modeling of brokerage, STT, and slippage |
 
 ---
 
-## Backtest Methodology
+## Composite Momentum Formulation
 
-- **Data:** Daily OHLCV from Yahoo Finance, 2014–present
-- **Signal construction:** Monthly resampled prices → momentum → composite
-- **Execution:** 1-month lag (no look-ahead bias)
-- **Costs:** 0.1% transaction cost on rebalance days only
-- **Benchmark:** Nifty 50 (`^NSEI`) buy-and-hold
-- **Risk-free rate:** 6.5% annualised (India 10yr G-Sec)
-- **Signal execution**: Sector momentum scores computed at month-end T are applied at the open of month T+1 (1-month execution lag). This prevents look-ahead bias — the model never uses information that would not have been available at decision time.
-- **Walk-forward structure**: training window expands, never a rolling window of fixed size, to simulate real deployment where all historical data is available.
+Log returns are calculated across four horizons and **cross-sectionally percentile-ranked** ($r_i \in [0, 1]$) across all 10 sectors before applying weights:
 
-### Metrics
+$$\text{Composite Score} = 0.10 \times \text{Rank}_{1\text{m}} + 0.25 \times \text{Rank}_{3\text{m}} + 0.40 \times \text{Rank}_{6\text{m}} + 0.25 \times \text{Rank}_{12\text{m}}$$
 
-| Metric | Description |
-|---|---|
-| CAGR | Compound annual growth rate |
-| Sharpe | Annualised excess return / total vol |
-| Sortino | Annualised excess return / downside vol only |
-| Max Drawdown | Worst peak-to-trough % over full history |
-| Calmar | CAGR / \|Max Drawdown\| |
-| Win Rate (monthly) | % of months with positive return |
-| Monthly Turnover | Average % of portfolio replaced each month |
+| Lookback Horizon | Weight | Theoretical & Empirical Rationale |
+|---|---|---|
+| **1 Month** | 10% | Filter for immediate short-term momentum; kept low due to reversal noise |
+| **3 Months** | 25% | Intermediate trend confirmation |
+| **6 Months** | 40% | **Core momentum driver** (Jegadeesh & Titman 1993: optimal signal-to-noise horizon) |
+| **12 Months** | 25% | Long-term macro business cycle trend |
 
 ---
 
-## Setup
+## Universe of 10 Nifty Sectors
+
+| Sector Index | Yahoo Finance Symbol | Underlying Industry Focus |
+|---|---|---|
+| **Nifty Auto** | `^CNXAUTO` | Passenger vehicles, commercial, 2-wheelers, auto ancillaries |
+| **Nifty Bank** | `^NSEBANK` | Private and public sector banking giants |
+| **Nifty Energy** | `^CNXENERGY` | Oil & gas, power generation, renewables |
+| **Nifty FMCG** | `^CNXFMCG` | Consumer staples, packaged goods, tobacco |
+| **Nifty IT** | `^CNXIT` | Software exporters, IT consulting, cloud services |
+| **Nifty Media** | `^CNXMEDIA` | Entertainment, broadcasting, print |
+| **Nifty Metal** | `^CNXMETAL` | Steel, aluminum, zinc, mining conglomerates |
+| **Nifty Pharma** | `^CNXPHARMA` | Formulations, APIs, biotechnology |
+| **Nifty Realty** | `^CNXREALTY` | Residential and commercial real estate developers |
+| **Nifty MNC** | `^CNXMNC` | Multinational corporations operating in India |
+
+---
+
+## System Architecture
+
+```text
+data.py          ──► Fetch 10 Sector Indices + ^NSEI (disk cached in data/)
+    │
+    ▼
+features.py      ──► 1m/3m/6m/12m Returns → Cross-Sectional Ranks → Composite Score
+    │
+    ▼
+strategy.py      ──► Apply 45% Vol Gate → Rank Sectors → Allocate Top 3 (33.3%)
+    │
+    ▼
+backtest.py      ──► Walk-forward backtest vs Nifty 50 (1m lag, 0.1% friction)
+    │
+    ├─────────────────────────────┐
+    ▼                             ▼
+outputs/                      api.py (FastAPI REST service)
+• equity_curve.png            • GET /signals/current
+• drawdown.png                • GET /backtest/summary
+• rolling_sharpe.png
+• sector_weights.png
+```
+
+---
+
+## Project Directory Layout
+
+```text
+Nifty Sector Rotation/
+├── data.py             # Data fetching module with disk caching
+├── features.py         # Momentum feature engineering & cross-sectional ranking
+├── strategy.py         # Portfolio construction, vol filters, and weight generation
+├── backtest.py         # Vectorized walk-forward backtesting engine
+├── run.py              # Master pipeline CLI orchestrator
+├── api.py              # FastAPI service exposing signals & backtest summaries
+├── requirements.txt    # Python dependencies (yfinance, pandas, scipy, fastapi, uvicorn)
+├── ReadMe.md           # Project documentation
+├── data/               # Cached price data and generated CSV files
+│   ├── sector_prices.csv
+│   ├── monthly_weights.csv
+│   └── backtest_summary.csv
+└── outputs/            # Diagnostic plots
+    ├── equity_curve.png
+    ├── drawdown.png
+    ├── rolling_sharpe.png
+    └── sector_weights.png
+```
+
+---
+
+## Where & How to Start
+
+### Step 1: Environment Setup
+
+Navigate to the project directory and configure the virtual environment:
 
 ```bash
+cd "Nifty Sector Rotation"
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# Linux / macOS:
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
----
+### Step 2: Run Master Pipeline
 
-## Usage
+Execute the end-to-end quantitative pipeline:
 
 ```bash
-# Full pipeline — fetch → signals → backtest → plots
 python run.py
+```
 
-# Force fresh data download (ignore cache)
+*To force a fresh data download from Yahoo Finance ignoring the local disk cache:*
+
+```bash
 python run.py --no-cache
-
-# Individual modules
-python data.py       # fetch and cache sector prices
-python features.py   # print latest month sector rankings
-python strategy.py   # print current allocation
-python backtest.py   # run backtest and save plots
 ```
 
----
+**Pipeline execution steps performed by `run.py`:**
+1. Loads/downloads 10 sector indices from 2014 to present.
+2. Computes momentum features and monthly weights.
+3. Generates out-of-sample backtest metrics against Nifty 50.
+4. Outputs performance tables to the console and writes CSV files to `data/`.
+5. Renders high-resolution plots to `outputs/`.
 
-## Outputs
+### Step 3: Start FastAPI Server
 
-| File | Description |
-|---|---|
-| `data/sector_prices.csv` | Daily close prices for all 10 sectors (cached) |
-| `data/monthly_signals.csv` | Long-format: date × sector × all scores |
-| `data/monthly_weights.csv` | Wide-format monthly allocation weights |
-| `data/backtest_equity.csv` | Daily equity curves (strategy + benchmark) |
-| `outputs/backtest.png` | Equity curve, drawdown, rolling 1yr Sharpe |
-| `outputs/sector_weights.png` | Stacked area chart of sector allocation history |
+Launch the REST service:
 
----
-
-## File Structure
-
-```
-03_sector_rotation/
-├── data.py
-├── features.py
-├── strategy.py
-├── backtest.py
-├── run.py
-├── requirements.txt
-├── LICENSE
-├── .gitignore
-├── data/          ← generated (git-ignored)
-└── outputs/       ← generated (git-ignored)
+```bash
+uvicorn api:app --reload --port 8000
 ```
 
----
-
-## Roadmap — Phase 2
-
-| Module | What it adds |
-|---|---|
-| `cointegration.py` | Engle-Granger test on sector pairs, spread z-score, OU half-life |
-| `timescaledb/` | PostgreSQL + TimescaleDB schema for OHLCV + signals |
-| `api/main.py` | FastAPI: `/signals/current`, `/signals/history`, `/backtest/summary` |
-| `dashboard.py` | Streamlit: rotation heatmap, allocation chart, equity curve, live signal |
+* API Base URL: **`http://localhost:8000`**
+* Interactive Swagger Docs: **`http://localhost:8000/docs`**
 
 ---
 
-## Data Disclaimer
+## REST API Reference
 
-Market data sourced from Yahoo Finance via [yfinance](https://github.com/ranaroussi/yfinance).
-For educational and portfolio demonstration purposes only. Not financial advice.
+| Method | Endpoint | Description | Sample Output |
+|---|---|---|---|
+| `GET` | `/` | Health check | `{"status": "ok", "service": "nifty-sector-rotation"}` |
+| `GET` | `/signals/current` | Active month's sector allocation | `{"month": "2026-03-31", "allocation": {"^CNXIT": 0.333, "^CNXAUTO": 0.333, "^CNXMETAL": 0.333}}` |
+| `GET` | `/backtest/summary` | Full backtest KPIs vs benchmark | `{"CAGR": {"Strategy": 0.184, "Nifty50": 0.114}, "Sharpe": {"Strategy": 0.812, "Nifty50": 0.366}}` |
 
 ---
+
+## Generated Artifacts & Diagnostic Plots
+
+Executing `python run.py` produces:
+
+1. **`outputs/equity_curve.png`**: Strategy cumulative wealth growth compared to Nifty 50 buy-and-hold.
+2. **`outputs/drawdown.png`**: Underwater equity curves showing duration and depth of drawdowns.
+3. **`outputs/rolling_sharpe.png`**: 12-month rolling annualized Sharpe ratio demonstrating consistency across market regimes.
+4. **`outputs/sector_weights.png`**: Stacked area allocation history showing dynamic industry rotations over the 12-year horizon.
+
+---
+
+## Connected Portfolio Projects
+
+* **[Nifty Time Series](https://github.com/RaajitSingh1306/Nifty-Time-Series)**: Demonstrates why broad index returns cannot be forecasted with linear models, motivating cross-sectional relative strength.
+* **[Finance KPI](https://github.com/RaajitSingh1306/Finance_Kpi)**: Foundational single-asset KPI computation engine.
+* **[Volatility Intelligence Platform](https://github.com/RaajitSingh1306/volatility-intelligence-platform)**: Regimes classified by VIP can be plugged directly into this strategy to dynamically alter equity exposure between 100%, 50%, and cash.
+
+---
+
+## License & Disclaimer
+
+MIT License. Designed for quantitative strategy research. Not investment advice.
