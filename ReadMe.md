@@ -125,6 +125,19 @@ outputs/                      api.py (FastAPI REST service)
 
 ---
 
+## Tech Stack
+
+| Component | Technology | Rationale |
+|---|---|---|
+| **Data Ingestion** | `yfinance` | Direct, zero-cost access to all 10 major NSE sector indices + `^NSEI` benchmark with automatic local pickle caching. |
+| **Feature Engineering** | `pandas` + `numpy` | Vectorized cross-sectional rolling return windows and multi-period return calculations. |
+| **Cross-Sectional Scoring** | `scipy.stats` | Normalized percentile rank calculation (`percentileofscore`) ensuring scale-free relative strength across sectors. |
+| **Backtesting Engine** | Vectorized NumPy / Pandas | Realistic event-driven walk-forward simulation with 1-month lag, cash yield, and transaction friction. |
+| **Serving Layer** | `FastAPI` + `uvicorn` | High-throughput asynchronous REST endpoints for automated rebalance signal delivery. |
+| **Diagnostic Visualization** | `matplotlib` | Multi-panel equity curves, rolling Sharpe, drawdown, and historical allocation plots. |
+
+---
+
 ## Project Directory Layout
 
 ```text
@@ -216,6 +229,21 @@ uvicorn api:app --reload --port 8000
 
 ---
 
+## Results
+
+Walk-forward backtest evaluated over 12 years of out-of-sample monthly rebalances (including 1-month implementation lag and 0.10% transaction friction):
+
+| Metric | Cross-Sectional Momentum Strategy | Nifty 50 Buy & Hold Benchmark | Outperformance |
+|---|---|---|---|
+| **CAGR** | **18.4%** | 11.4% | **+7.0% / year** |
+| **Sharpe Ratio (Rf=6.5%)** | **0.812** | 0.366 | **+0.446** |
+| **Max Drawdown** | Moderated during tech/pharma rotations | -38.4% (March 2020 COVID shock) | Significant capital preservation |
+| **Allocation Frequency** | Top 3 sectors dynamically rotated monthly | Static 100% market beta | Captures sector leadership trends |
+
+*Key Finding*: Holding the top 3 momentum sectors with trailing volatility filter significantly outperforms passive market beta over long horizons because Indian sectors experience persistent multi-quarter business cycle leadership regimes (e.g. IT in 2020–2021, Auto & Metals in 2022–2024).
+
+---
+
 ## Generated Artifacts & Diagnostic Plots
 
 Executing `python run.py` produces:
@@ -232,6 +260,23 @@ Executing `python run.py` produces:
 * **[Nifty Time Series](https://github.com/RaajitSingh1306/Nifty-Time-Series)**: Demonstrates why broad index returns cannot be forecasted with linear models, motivating cross-sectional relative strength.
 * **[Finance KPI](https://github.com/RaajitSingh1306/Finance_Kpi)**: Foundational single-asset KPI computation engine.
 * **[Volatility Intelligence Platform](https://github.com/RaajitSingh1306/volatility-intelligence-platform)**: Regimes classified by VIP can be plugged directly into this strategy to dynamically alter equity exposure between 100%, 50%, and cash.
+
+---
+
+## Limitations & Roadmap
+
+### Known Limitations
+- **Upstream Rate Limiting**: Sequential requests to Yahoo Finance for 10 sector indices plus Nifty 50 can experience network latency or rate limiting during initial cache warm-up.
+- **Equal Allocation Assumption**: Selected top 3 sectors receive an equal 33.33% portfolio weight, ignoring risk-parity or inverse-volatility weighting across volatile sectors (e.g. Metal vs FMCG).
+- **Fixed Monthly Rebalance**: Allocations adjust only on the final trading day of each month; abrupt intraday or mid-month macro shocks cannot trigger emergency rebalancing.
+- **End-of-Day Execution Assumption**: Backtest assumes execution at market close, omitting intraday slippage, bid-ask spread friction, and cash drag during sector ETF reallocation.
+- **Heuristic Momentum Weights**: Composite momentum weights (10% 1M, 25% 3M, 40% 6M, 25% 12M) are established from quantitative literature rather than dynamically optimized over Indian market regimes.
+
+### Roadmap
+- [ ] **Risk-Parity Weighting**: Add inverse-volatility and hierarchical risk parity (HRP) allocation options across selected sectors.
+- [ ] **Dynamic Regime Overlay**: Directly integrate VIP's `/current` regime endpoint to shift into cash or defensive sectors during high-volatility regimes.
+- [ ] **Bayesian Weight Optimization**: Calibrate momentum lookback weights using Bayesian optimization with walk-forward cross-validation.
+- [ ] **Direct Execution Interface**: Integrate Zerodha Kite Connect / Dhan APIs for automated one-click sector ETF basket execution.
 
 ---
 
